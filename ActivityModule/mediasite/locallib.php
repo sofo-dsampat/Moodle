@@ -1,135 +1,129 @@
 <?php
-require_once("$CFG->dirroot/mod/mediasite/webapiclient.php");
-require_once("$CFG->dirroot/mod/mediasite/MediasiteSite.php");
-require_once("$CFG->dirroot/mod/mediasite/MediasiteConfiguration.php");
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-function mediasite_get_version () {
-    global $MEDIASITE;
-    if($MEDIASITE->passthru === 1) {
-        global $USER;
-        $client = new WebApiExternalAccessClient($MEDIASITE->endpoint,$MEDIASITE->username,$MEDIASITE->password,$USER->username);
-    } else {
-        $client = new WebApiExternalAccessClient($MEDIASITE->endpoint,$MEDIASITE->username,$MEDIASITE->password);
-    }
+/**
+ * Mediasite plugin for Moodle.
+ *
+ * @package mod_mediasite
+ * @copyright Sonic Foundry 2017  {@link http://sonicfoundry.com}
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 
-    $siteprops = $client->QuerySiteProperties();
+defined('MOODLE_INTERNAL') || die();
 
-    return $siteprops->Version;
-}
-function mediasite_check_resource_permission($resourceid, $resourcetype, $username)
-{
-    if ($resourcetype == 'Presentation') {
-    } elseif ($resourcetype == 'Catalog') {
-    }
-    return true;
-}
+global $CFG;
+require_once("$CFG->dirroot/mod/mediasite/lib.php");
+require_once("$CFG->dirroot/mod/mediasite/mediasitesite.php");
+require_once("$CFG->dirroot/mod/mediasite/mediasiteresource.php");
 
-function mediasite_search($searchtext, $resourcetype)
-{
-    global $MEDIASITE;
-    if($MEDIASITE->passthru == 1) {
-        global $USER;
-        $client = new WebApiExternalAccessClient($MEDIASITE->endpoint,$MEDIASITE->username,$MEDIASITE->password,$USER->username);
-    } else {
-        $client = new WebApiExternalAccessClient($MEDIASITE->endpoint,$MEDIASITE->username,$MEDIASITE->password);
-    }
+define("MEDIASITE_MOODLE_TIMEOUT", 25);
 
-    if($resourcetype == 'Presentation') {
-        if(strpos($searchtext, '*') === TRUE)
-        {
-            $filter = '?$filter=Title+eq+%27'.$searchtext.'%27+or+Description+eq+%27'.$searchtext.'%27+or+Tags%2Fany%28x%3Ax%2FTag+eq+%27'.$searchtext.'%27%29&$select=full';
+function mediasite_is_local_mediasite_courses_installed() {
+    // Extend settings for each local plugin. Note that their settings may be in any part of the
+    // settings tree and may be visible not only for administrators.
+    foreach (core_plugin_manager::instance()->get_plugins_of_type('local') as $plugin) {
+        if (strcmp($plugin->component, 'local_mediasite_courses') === 0) {
+            return true;
         }
-        elseif(empty($searchtext))
-        {
-            $results = $client->QueryPresentations('?$orderby=Title&$select=full');
-        }
-        else
-        {
-            $filter = '?$filter=%28'.
-                          'Title+eq+%27'.$searchtext.'%27'.'+or+'.
-                          'Description+eq+%27'.$searchtext.'%27'.'+or+'.
-                          'Tags%2Fany%28x%3Ax%2FTag+eq+%27'.$searchtext.'%27%29'.
-                      '%29'.
-                      '&'.
-                      '$orderby=Title+asc'.
-                      '&'.
-                      '$select=full';
-            $results = $client->QueryPresentations($filter);
-            if(count($results) <= 0) {
-                $filter = '?$filter=%28'.
-                              'startswith%28Title%2C+%27'.$searchtext.'%27%29'.'+or+'.
-                              'startswith%28Description%2C+%27'.$searchtext.'%27%29'.'+or+'.
-                              'Tags%2Fany%28x%3Astartswith%28x%2FTag%2C+%27'.$searchtext.'%27%29%29'.
-                          '%29'.
-                          '&'.
-                          '$orderby=Title+asc'.
-                          '&'.
-                          '$select=full';
-                $results = $client->QueryPresentations($filter);
+    }
+    return false;
+}
+
+function mediasite_is_atto_mediasitebutton_installed() {
+    // Extend settings for each local plugin. Note that their settings may be in any part of the
+    // settings tree and may be visible not only for administrators.
+    foreach (core_plugin_manager::instance()->get_plugins_of_type('editor') as $plugin) {
+        if (strcmp($plugin->component, 'editor_atto') === 0) {
+            foreach (core_plugin_manager::instance()->get_subplugins_of_plugin($plugin->component) as $subplugin) {
+                if (strcmp($subplugin->component, 'atto_mediasitebutton') === 0) {
+                    return true;
+                }
             }
         }
     }
-    else if($resourcetype == 'Catalog') {
-        if(strpos($searchtext, '*') === TRUE)
-        {
-            $filter = '?$filter=%28Name+eq+%27'.$searchtext.'%27%29&$select=full';
-        }
-        elseif(empty($searchtext))
-        {
-            $results = $client->QueryCatalogShares('?$orderby=Name');
-        }
-        else
-        {
-            $filter = '?$filter=%28startswith%28Name%2C+%27'.$searchtext.'%27%29%29&$select=full';
-            $results = $client->QueryCatalogShares($filter);
-        }
-    }
-
-    if(count($results) == 1) {
-        $results = array($results);
-    }
-
-    return $results;
-}
-function mediasite_get_playback_url($mediasitelink) {
-    $site = new Sonicfoundry\MediasiteSite($mediasitelink->siteid);
-    if(!$site) {
-        error('Site not found - '.$mediasitelink->siteid);
-        return '';
-    } else {
-        $site->set_config();
-    }
-    global $MEDIASITE;
-    if($MEDIASITE->passthru == 1) {
-        global $USER;
-        $client = new WebApiExternalAccessClient($MEDIASITE->endpoint,$MEDIASITE->username,$MEDIASITE->password,$USER->username);
-    } else {
-        $client = new WebApiExternalAccessClient($MEDIASITE->endpoint,$MEDIASITE->username,$MEDIASITE->password);
-    }
-
-    if($mediasitelink->resourcetype == 'Presentation') {
-        $playbackbase = $client->QueryPresentationPlaybackUrl($mediasitelink->resourceid);
-    }
-    else if($mediasitelink->resourcetype == 'Catalog') {
-        $catalog = $client->QueryCatalogById($mediasitelink->resourceid);
-        $playbackbase = $catalog->CatalogUrl;
-    }
-
-    if(!isset($playbackbase) || empty($playbackbase)) {
-        print_error( get_string('mediasitenotfound', 'mediasite'));
-        exit;
-    }
-
-    $clientip = null;
-    if($MEDIASITE->restrictip == 1) {
-        $clientip = $_SERVER['REMOTE_ADDR'];
-    }
-    global $USER;
-    $authticket = $client->CreateAuthTicket($USER->username, $mediasitelink->resourceid, $clientip, $MEDIASITE->duration);
-
-    $playbackurl = "$playbackbase?authTicket=$authticket";
-    return $playbackurl;
+    return false;
 }
 
+function mediasite_check_resource_permission($resourceid, $resourcetype, $username) {
+    return true;
+}
 
-?>
+function mediasite_get_editor_options($context) {
+    global $CFG;
+    return array(
+        'subdirs' => 1,
+        'maxbytes' => $CFG->maxbytes,
+        'maxfiles' => -1,
+        'changeformat' => 1,
+        'context' => $context,
+        'noclean' => 1,
+        'trusttext' => 0
+    );
+}
+
+function mediasite_has_value($value) {
+    return isset($value) && !is_null($value) && trim($value) != '';
+}
+
+function mediasite_guid_to_muid($guid, $entitytype) {
+    $muid = $guid;
+    if (strpos($guid, "-") > 0) {
+        $muid = str_replace("-", "", $guid);
+        if ($entitytype == "Presentation") {
+            $muid .= "1d";
+        } else if ($entitytype == "CatalogFolderDetails") {
+            $muid .= "21";
+        }
+    }
+    return $muid;
+}
+
+function mediasite_has_capability_in_any_context($capability) {
+    global $PAGE, $USER;
+
+    try {
+        $usercontext = context_user::instance($USER->id);
+        if (has_capability($capability, $usercontext)) {
+            blowup("The usercontext has the '".$capability."' capability.");
+            return true;
+        }
+        if ($PAGE->category) {
+            $categorycontext = context_coursecat::instance($PAGE->category->id);
+            if (has_capability($capability, $categorycontext)) {
+                blowup("The categorycontext has the '".$capability."' capability.");
+                return true;
+            }
+        }
+        if ($PAGE->course) {
+            $coursecontext = context_course::instance($PAGE->course->id);
+            if (has_capability($capability, $coursecontext)) {
+                blowup("The coursecontext has the '".$capability."' capability.");
+                return true;
+            }
+        }
+        if ($PAGE->cm) {
+            $contextmodule = context_module::instance($PAGE->cm->id);
+            if (has_capability($capability, $contextmodule)) {
+                blowup("The contextmodule has the '".$capability."' capability.");
+                return true;
+            }
+        }
+    } catch (Exception $e) {
+        blowup("mod_mediasite could not determine if the user has the '".$capability."' due to the following exception: "
+                .$e->getMessage());
+        return false;
+    }
+}
